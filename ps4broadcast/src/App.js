@@ -1,7 +1,7 @@
-import { LoadingOutlined } from '@ant-design/icons';
 import { Steps } from "antd";
 import "antd/dist/antd.min.css";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { io } from "socket.io-client";
 import "./App.css";
 import Confirmation from "./Steps/Confirmation";
 import DanmakuInfo from "./Steps/DanmakuInfo";
@@ -9,8 +9,10 @@ import LiveStatus from "./Steps/LiveStatus";
 import PlatformInfo from "./Steps/PlatformInfo";
 import TwitchInfo from "./Steps/TwitchInfo";
 
+const socket = io("ws://localhost:26667");
+
 function App() {
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(4);
   const [twitchId, setTwitchId] = useState("");
   const [platform, setPlatform] = useState("douyu");
   const [streamUrl, setStreamUrl] = useState("");
@@ -19,10 +21,33 @@ function App() {
   const [recordingPath, setRecordingPath] = useState("");
   const [danmakuEnabled, setDanmakuEnabled] = useState(false);
   const [roomId, setRoomId] = useState("");
-  const [liveStatus, setLiveStatus] = useState("prepare");
+  const [liveStatus, setLiveStatus] = useState("stopped");
+
+  useEffect(() => {
+    socket.on("preparingLive", (step) => {
+      setCurrentStep(4);
+      setLiveStatus(step);
+    });
+
+    socket.on("liveStarted", () => {
+      setCurrentStep(4);
+      setLiveStatus("started");
+    });
+
+    socket.on("liveStopped", () => {
+      setLiveStatus("stopped");
+      setCurrentStep(3);
+    });
+
+    return () => {
+      socket.off("preparingLive");
+      socket.off("liveStarted");
+      socket.off("liveStopped");
+    };
+  }, []);
 
   const startLive = () => {
-    setLiveStatus("connectPlayStation");
+    socket.emit("startLive");
   }
 
   const moveNext = () => {

@@ -50,6 +50,10 @@ function App() {
     socket.emit("startLive");
   }
 
+  const stopLive = () => {
+    socket.emit("stopLive");
+  }
+
   const moveNext = () => {
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1);

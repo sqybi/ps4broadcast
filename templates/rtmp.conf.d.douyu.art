@@ -1,0 +1,20 @@
+server {
+    listen 1935;
+    chunk_size 10240;
+    max_message 64M;
+    application app {
+        live on;
+        meta copy;
+        {{if recordEnabled}}
+        record all;
+        record_path {{recordPath}};
+        record_prefix ps4broadcast-;
+        record_suffix %F(%T).flv;
+        record_unique off;
+        record_interval 60m;
+        {{/if}}
+        {{each urls}}
+        push {{$value}};
+        {{/each}}
+    }
+}

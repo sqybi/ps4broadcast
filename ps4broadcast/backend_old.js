@@ -300,6 +300,7 @@ var LivingProcess = function (tid, items) {
     });
   }
 };
+
 app.use("/js", express.static("extends"));
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");

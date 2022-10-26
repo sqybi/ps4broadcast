@@ -15,10 +15,6 @@ const modules = [];
 const roomModules = {};
 const moduleFiles = await fs.readdir(path.join(__dirname, "/modules"));
 for (const mf of moduleFiles) {
-  if (mf.indexOf("_") === 0) {
-    console.log(mf + " is loaded.");
-    modules[modules.length] = require(path.join(__dirname, "/modules/", mf));
-  }
   if (mf.indexOf("room_") === 0) {
     console.log(mf + " is loaded as room module.");
     const room_module = require(path.join(__dirname, "/modules/", mf));
@@ -26,7 +22,21 @@ for (const mf of moduleFiles) {
   }
 }
 
-const openRoom = function (rid, type, webIO, ps4) {
+const stageInfo = {
+  currentStage: "stopped",
+}
+const emitStageInfo = (socket) => {
+  if (!socket) {
+    socket = io;
+  }
+  socket.emit("stage", stageInfo.currentStage);
+}
+const updateStageInfo = (newStage) => {
+  stageInfo.currentStage = newStage;
+  emitStageInfo();
+}
+
+const openRoom = (rid, type, webIO, ps4) => {
   return new roomModules[type].Init(rid, webIO, ps4, app);
 }
 
@@ -136,43 +146,37 @@ class LivingProcess {
   constructor() {
     this.tid = null;
     this.recordPath = null;
-    this.items = null;
+    this.liveConfigs = null;
     this.rooms = [];
     this.currentTwitchClient = null;
   }
 
-  // TODO: Removed prepare, check if it works
-  async configNginxRtmp() {
-    try {
-      const fileContent = template(path.join(__dirname, "templates/rtmp.conf.d.douyu.art"), {
-        recordEnabled: this.recordPath !== null && this.recordPath.trim() !== "",
-        recordPath: this.recordPath,
-        urls: this.items.map((item) => path.join(item.url, item.code)),
-      })
-      await fs.writeFile(
-        "/usr/local/nginx/conf/rtmp.conf.d/douyu",
-        fileContent,
-        {encoding: "utf8", flag: "w", mode: 0o664}
-      );
-    } catch (e) {
-      io.emit("error", e.toString());
-    }
-  }
-
-  async configDanmaku() {
-    for (const item of this.items) {
+  async startDanmaku() {
+    for (const item of this.liveConfigs) {
       this.rooms[this.rooms.length] = openRoom(item.rid, item.type, io, this);
     }
   }
 
-  // TODO: Removed resetTwitchClient, check if it works
-  async configTwitchClient() {
+  async startTwitchClient() {
+    if (this.currentTwitchClient) {
+      this.currentTwitchClient.close();
+    }
     this.currentTwitchClient = new FakeTwitchSocketForPS4(this.tid);
     this.currentTwitchClient.open();
   }
 
   async startNginx() {
     try {
+      const fileContent = template(path.join(__dirname, "backend_templates/rtmp.conf.d.douyu.art"), {
+        recordEnabled: this.recordPath !== null && this.recordPath.trim() !== "",
+        recordPath: this.recordPath,
+        urls: this.liveConfigs.map((liveConfig) => path.join(liveConfig.url, liveConfig.code)),
+      })
+      await fs.writeFile(
+        "/usr/local/nginx/conf/rtmp.conf.d/douyu",
+        fileContent,
+        {encoding: "utf8", flag: "w", mode: 0o664}
+      );
       await cp.exec("/usr/local/nginx/sbin/nginx");
     } catch (e) {
       io.emit("error", e.toString());
@@ -180,7 +184,9 @@ class LivingProcess {
   }
 
   async start(tid, recordPath, items) {
-
+    this.tid = tid;
+    this.recordPath = recordPath;
+    this.liveConfigs = items;
   }
 
   async stop() {
@@ -188,15 +194,18 @@ class LivingProcess {
   }
 }
 
+const livingProcess = new LivingProcess();
+
 // Set socket.io connections
 io.on("connection", async (socket) => {
   try {
     socket.emit(
-      "lastConfig",
+      "config",
       JSON.parse(await fs.readFile(path.join(__dirname, "/lp.data"), {encoding: "utf8"}))
     );
   } catch (e) {
   }
+  emitStageInfo(socket);
 
   socket.on("startLive", async (tid, recordPath, items) => {
     await fs.writeFile(
@@ -204,11 +213,11 @@ io.on("connection", async (socket) => {
       JSON.stringify({tid: tid, recordPath: recordPath, items: items}),
       {encoding: "utf8", flag: "w", mode: 0o664}
     );
-    io.emit("preparingLive", "");
+    await livingProcess.start(tid, recordPath, items);
   });
 
   socket.on("stopLive", async () => {
-    io.emit("liveStopped");
+    await livingProcess.stop();
   });
 });
 
